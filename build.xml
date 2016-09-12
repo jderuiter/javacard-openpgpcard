@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project name="${project.name}" default="applet">
+
+  <property file="build.properties" />
+
+  <!-- Definitions for tasks for Java Card tools --> 
+  <taskdef name="apdutool" classname="com.sun.javacard.ant.tasks.APDUToolTask" classpath="${lib.dir}/${jar.jctasks}" />
+  <taskdef name="capgen" classname="com.sun.javacard.ant.tasks.CapgenTask" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <taskdef name="maskgen" classname="com.sun.javacard.ant.tasks.MaskgenTask" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <taskdef name="deploycap" classname="com.sun.javacard.ant.tasks.DeployCapTask" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <taskdef name="exp2text" classname="com.sun.javacard.ant.tasks.Exp2TextTask" classpath="${lib.dir}/${jar.jctasks}" />
+  <taskdef name="convert" classname="com.sun.javacard.ant.tasks.ConverterTask" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <taskdef name="verifyexport" classname="com.sun.javacard.ant.tasks.VerifyExpTask" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <taskdef name="verifycap" classname="com.sun.javacard.ant.tasks.VerifyCapTask" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <taskdef name="verifyrevision" classname="com.sun.javacard.ant.tasks.VerifyRevTask" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <taskdef name="scriptgen" classname="com.sun.javacard.ant.tasks.ScriptgenTask" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <typedef name="appletnameaid" classname="com.sun.javacard.ant.types.AppletNameAID" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <typedef name="jcainputfile" classname="com.sun.javacard.ant.types.JCAInputFile" classpath="${lib.dir}/${jar.jctasks}" /> 
+  <typedef name="exportfiles" classname="org.apache.tools.ant.types.FileSet" classpath="${lib.dir}/${jar.jctasks}" />
+
+  <path id="classpath">
+    <fileset dir="${lib.dir}" includes="*.jar" />
+  </path>
+
+  <pathconvert property="cap.dir">
+    <path path="${bin.dir}/${cap.package}" />
+    <unpackagemapper from="*" to="*/javacard" />
+  </pathconvert>
+
+  <pathconvert property="cap.file">
+    <path path="${cap.package}" />
+    <chainedmapper>
+      <unpackagemapper from="*" to="*.cap" />
+      <flattenmapper />
+    </chainedmapper>
+  </pathconvert>
+
+  <target name="clean">
+    <delete dir="${bin.dir}" />
+    <delete dir="${base.dir}" includes="*.zip *.tar.*" />
+  </target>
+
+  <target name="compile">
+    <mkdir dir="${bin.dir}" />
+    <javac srcdir="${src.dir}" destdir="${bin.dir}" includeantruntime="false" source="1.3" target="1.2">
+      <classpath refid="classpath" />
+    </javac>
+  </target>
+
+  <target name="applet" depends="compile">
+    <convert dir="${bin.dir}" JCA="true" EXP="true" CAP="true" nobanner="true" majorminorversion="1.0"
+      packagename="${cap.package}" packageaid="${cap.package_aid}"
+      ExportPath="${lib.dir}/api_export_files:${lib.dir}/jcopx_export_files:${bin.dir}">
+      <AppletNameAID appletname="${cap.applet}" aid="${cap.applet_aid}" />
+      <classpath refid="classpath" /> 
+    </convert>
+  </target>
+
+  <target name="release" depends="clean,compile,applet">
+    <zip destfile="${base.dir}/${project.name}.zip">
+      <fileset dir="${base.dir}" excludes="*.zip *.tar.*" />
+    </zip>
+    <tar destfile="${base.dir}/${project.name}.tar.gz" compression="gzip">
+      <fileset dir="${base.dir}" excludes="*.zip *.tar.*" />
+    </tar>
+    <tar destfile="${base.dir}/${project.name}.tar.bz2" compression="bzip2">
+      <fileset dir="${base.dir}" excludes="*.zip *.tar.*" />
+    </tar>
+  </target>
+
+  <target name="install" depends="applet">
+    <java classname="net.sourceforge.gpj.cardservices.GlobalPlatformService">
+      <classpath refid="classpath" /> 
+      <arg line="-sdaid ${gpj.sd_aid}" />
+      <arg line="-deletedeps -delete ${cap.package_aid}" />
+      <arg line="-load '${cap.dir}/${cap.file}'" />
+      <arg line="-install -list" />
+    </java>
+  </target>
+
+  <target name="uninstall">
+    <java classname="net.sourceforge.gpj.cardservices.GlobalPlatformService">
+      <classpath refid="classpath" /> 
+      <arg line="-sdaid ${gpj.sd_aid}" />
+      <arg line="-deletedeps -delete ${cap.package_aid} -list" />
+    </java>
+  </target>
+</project>
