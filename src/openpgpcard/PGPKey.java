@@ -23,8 +23,6 @@ import javacard.security.*;
 
 /**
  * @author Joeri de Ruiter (joeri@cs.ru.nl)
- * @version $Revision: 12 $ by $Author: joeridr $
- *          $LastChangedDate: 2012-02-23 15:31:33 +0100 (Thu, 23 Feb 2012) $
  */
 public class PGPKey implements ISO7816 {
 	public static final short KEY_SIZE = 2048;// 2368;

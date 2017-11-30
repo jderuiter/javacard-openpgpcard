@@ -34,8 +34,6 @@ import javacardx.crypto.*;
  * 0000 - RFU
  * 
  * @author Joeri de Ruiter (joeri@cs.ru.nl)
- * @version $Revision: 13 $ by $Author: joeridr $
- *          $LastChangedDate: 2015-04-13 16:02:31 +0200 (Mon, 13 Apr 2015) $
  */
 public class OpenPGPApplet extends Applet implements ISO7816 {
 	//TODO Check atomicity of all storage commands
@@ -633,8 +631,8 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			if (!pw3.isValidated())
 				ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
 
-			// TODO Usage of transaction resultsin SW 6F00 on new cards
-			JCSystem.beginTransaction();
+			// TODO Usage of transaction results in SW 6F00 on new cards
+//			JCSystem.beginTransaction();
 			key.genKeyPair();
 			
 			if (buffer[0] == (byte) 0xB6) {
@@ -643,7 +641,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 					ds_counter[i] = (byte) 0;
 				}
 			}
-			JCSystem.commitTransaction();
+//			JCSystem.commitTransaction();
 		}
 
 		// Output requested key

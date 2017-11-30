@@ -42,8 +42,6 @@ import javacardx.crypto.Cipher;
  * e-passport Java Card applet from the JMRTD project (http://jmrtd.org/).
  * 
  * @author Pim Vullers
- * @version $Revision: 12 $ by $Author: joeridr $
- *          $LastChangedDate: 2012-02-23 15:31:33 +0100 (Thu, 23 Feb 2012) $
  */
 public class OpenPGPSecureMessaging {
     private static final short SW_INTERNAL_ERROR = (short) 0x6D66;
