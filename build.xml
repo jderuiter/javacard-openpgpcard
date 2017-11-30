@@ -1,14 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project basedir="." default="openpgpcard" name="JavaCard OpenPGP Applet">
+  <property name="test.build.dir" value="bin"/>
+  <property name="main.src.dir" value="src"/>
+  <property name="test.src.dir" value="test"/>
+  <property name="lib.dir" value="lib"/>
+
   <!-- Applet building dependencies -->
-  <property name="JC" value="ext/oracle_javacard_sdks/jc303_kit/"/>
+  <property name="JC" value="${lib.dir}/oracle_javacard_sdks/jc303_kit/"/>
 
-  <get src="https://github.com/martinpaljak/ant-javacard/releases/download/v1.8/ant-javacard.jar" dest="ext/" skipexisting="true"/>
-
+  <get src="https://github.com/martinpaljak/ant-javacard/releases/download/v1.8/ant-javacard.jar" dest="${lib.dir}" skipexisting="true"/>
+  <get src="https://github.com/licel/jcardsim/raw/master/jcardsim-3.0.4-SNAPSHOT.jar" dest="${lib.dir}" skipexisting="true"/>
+  <get src="https://github.com/junit-team/junit/releases/download/r4.12/junit-4.12.jar" dest="${lib.dir}" skipexisting="true"/>
+  <get src="http://search.maven.org/remotecontent?filepath=org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar" dest="${lib.dir}/hamcrest-core-1.3.jar" skipexisting="true"/>
+	
+  <path id="classpath.test">
+    <pathelement location="${lib.dir}/junit-4.12.jar"/>
+    <pathelement location="${lib.dir}/hamcrest-core-1.3.jar"/>
+  	<pathelement location="${lib.dir}/jcardsim-3.0.4-SNAPSHOT.jar"/>
+    <pathelement location="${test.build.dir}"/>
+  </path>
+	
   <!-- ant-javacard task from javacard.pro -->
-  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="ext/ant-javacard.jar"/>
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="${lib.dir}/ant-javacard.jar"/>
 
-  <!-- All included applets -->
+  <!-- Build OpenPGP applet -->
   <target name="openpgpcard">
     <javacard jckit="${JC}">
 	  <cap output="openpgpcard.cap" sources="src" aid="D27600012401">
@@ -16,4 +31,33 @@
       </cap>
     </javacard>
   </target>
+	
+  <!-- Build applet used in the unit tests -->	
+  <target name="compileTestApplet" depends="openpgpcard">
+  	<mkdir dir="${test.build.dir}"/>
+    <javac srcdir="${main.src.dir}" destdir="${test.build.dir}" includeantruntime="false" debug="yes">
+      <classpath refid="classpath.test"/>
+	</javac>
+  </target>
+	
+  <!-- Build unit tests -->	
+  <target name="compileTest" depends="openpgpcard,compileTestApplet">
+    <javac srcdir="${test.src.dir}" destdir="${test.build.dir}" includeantruntime="false">
+  	  <classpath refid="classpath.test"/>
+    </javac>
+  </target>
+	
+  <!-- Run tests -->	
+  <target name="test" depends="compileTest">
+    <junit printsummary="yes" haltonfailure="no" fork="true">
+      <classpath>
+        <path refid="classpath.test"/>
+        <pathelement location="${test.build.dir}"/>
+      </classpath>
+	  <test name="openpgpcard.OpenPGPAppletTest" haltonfailure="no" todir=".">
+	    <formatter type="plain" />
+	    <formatter type="xml" />
+	  </test>
+	</junit>
+  </target>	
 </project>
