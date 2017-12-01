@@ -61,7 +61,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	private static short RESPONSE_SM_MAX_LENGTH = 231;
 	private static short CHALLENGES_MAX_LENGTH = 255;
 
-	private static short BUFFER_MAX_LENGTH = 674;
+	private static short BUFFER_MAX_LENGTH = 934;
 
 	private static short LOGINDATA_MAX_LENGTH = 254;
 	private static short URL_MAX_LENGTH = 254;
@@ -1138,11 +1138,19 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 		short len_dq1 = getLength(buffer, offset);
 		offset += getLengthBytes(len_dq1);
 
+		if (buffer[offset++] != (byte) 0x97)
+			ISOException.throwIt(SW_DATA_INVALID);
+		short len_modulus = getLength(buffer, offset);
+		offset += getLengthBytes(len_modulus);
+
 		if (!(buffer[offset_data++] == 0x5F && buffer[offset_data++] == 0x48))
 			ISOException.throwIt(SW_DATA_INVALID);
 		offset_data += getLengthBytes(getLength(buffer, offset_data));
 
+		key.clearKeyPair();
+		
 		// TODO Check value of e
+		key.setExponent(buffer, offset_data, len_e);		
 		offset_data += len_e;
 
 		key.setP(buffer, offset_data, len_p);
@@ -1159,6 +1167,14 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 
 		key.setDQ1(buffer, offset_data, len_dq1);
 		offset_data += len_dq1;
+		
+		key.setModulus(buffer, offset_data, len_modulus);
+		offset_data += len_modulus;
+		
+		// Check if keys are successfully imported
+		if(!key.isInitialized()) {
+			ISOException.throwIt(SW_UNKNOWN);
+		}
 	}
 
 	/**
@@ -1171,6 +1187,11 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	private short sendPublicKey(PGPKey key) {
 		RSAPublicKey pubkey = key.getPublic();
 
+		// Check if the public key is properly initialised
+		if(!pubkey.isInitialized()) {
+			ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
+		}
+			
 		// Build message in tmp
 		short offset = 0;
 
