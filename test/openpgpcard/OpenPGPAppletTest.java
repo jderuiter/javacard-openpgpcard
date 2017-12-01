@@ -84,6 +84,32 @@ public class OpenPGPAppletTest {
 				new byte[] { 0x00, 0x20, 0x00, (byte) 0x81, 0x06, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36 });
 		assertArrayEquals(new byte[] { (byte) 0x63, (byte) 0xc0 }, response);
 	}
+	
+	@Test
+	public void test_userPINStatus() {
+		byte[] response = simulator.transmitCommand(
+				new byte[] { 0x00, 0x20, 0x00, (byte) 0x81, 0x06, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31 });
+		assertArrayEquals(new byte[] { (byte) 0x63, (byte) 0xc2 }, response);
+		response = simulator.transmitCommand(
+				new byte[] { 0x00, 0x20, 0x00, (byte) 0x81, 0x00 });
+		assertArrayEquals(new byte[] { (byte) 0x63, (byte) 0xc2 }, response);
+		
+		// Verify correct password
+		response = simulator.transmitCommand(
+				new byte[] { 0x00, 0x20, 0x00, (byte) 0x81, 0x06, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36 });
+		assertArrayEquals(new byte[] { (byte) 0x90, 0x00 }, response);
+		response = simulator.transmitCommand(
+				new byte[] { 0x00, 0x20, 0x00, (byte) 0x81, 0x00 });
+		assertArrayEquals(new byte[] { (byte) 0x90, (byte) 0x00 }, response);
+		
+		// Invalidate correctly verified password
+		response = simulator.transmitCommand(
+				new byte[] { 0x00, 0x20, (byte)0xFF, (byte) 0x81, 0x00 });
+		assertArrayEquals(new byte[] { (byte) 0x90, (byte) 0x00 }, response);
+		response = simulator.transmitCommand(		
+				new byte[] { 0x00, 0x20, 0x00, (byte) 0x81, 0x00 });
+		assertArrayEquals(new byte[] { (byte) 0x63, (byte) 0xc3 }, response);	
+	}	
 
 	/**
 	 * Test reset of PIN try counter by first verifying a wrong PIN, followed by

@@ -236,7 +236,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			
 			// VERIFY
 			case (byte) 0x20:
-				verify(apdu, p2);
+				verify(apdu, p2, p1);
 				break;
 	
 			// CHANGE REFERENCE DATA
@@ -400,6 +400,17 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 		in_received = 0;
 	}
 
+	private OwnerPIN getPIN(byte mode) {
+		OwnerPIN pw = pw1;
+		if (mode == (byte) 0x81 || mode == (byte) 0x82) {
+			pw = pw1;
+		} else if (mode == (byte) 0x83) {
+			pw = pw3;
+		} else {
+			ISOException.throwIt(SW_INCORRECT_P1P2);
+		}		
+		return pw;
+	}
 	/**
 	 * Provide the VERIFY command (INS 20)
 	 * 
@@ -410,34 +421,61 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	 * @param mode
 	 *            Password and mode to be verified
 	 */
-	private void verify(APDU apdu, byte mode) {
-		if (mode == (byte) 0x81 || mode == (byte) 0x82) {
-			// Check length of input
-			if (in_received < PW1_MIN_LENGTH || in_received > PW1_MAX_LENGTH)
-				ISOException.throwIt(SW_WRONG_LENGTH);
+	private void verify(APDU apdu, byte mode, byte action) {
+		if(in_received == 0) {
+			// Select correct PIN
+			OwnerPIN pw = getPIN(mode);
 
-			// Check given PW1 and set requested mode if verified succesfully
-			if (pw1.check(buffer, _0, (byte) in_received)) {
-				if (mode == (byte) 0x81)
-					pw1_modes[PW1_MODE_NO81] = true;
-				else
-					pw1_modes[PW1_MODE_NO82] = true;
-			} else {
-				ISOException
-						.throwIt((short) (0x63C0 | pw1.getTriesRemaining()));
+			if (action == 0x00) {
+				// Status for password requested
+				if(pw.isValidated()) {
+					// Return 9000 if password is still valid					
+					ISOException.throwIt(SW_NO_ERROR);
+				} else {
+					// Return remaining number of tries otherwise
+					ISOException
+					.throwIt((short) (0x63C0 | pw.getTriesRemaining()));					
+				}
+			} else if (action == (byte)0xFF) {
+				// Reset PIN
+				pw.reset();
+				
+				// For PW1 also reset PW1 mode
+				if (mode == (byte) 0x81 || mode == (byte) 0x82) {
+					pw1_modes[PW1_MODE_NO81] = false;
+					pw1_modes[PW1_MODE_NO82] = false;					
+				}
 			}
-		} else if (mode == (byte) 0x83) {
-			// Check length of input
-			if (in_received < PW3_MIN_LENGTH || in_received > PW3_MAX_LENGTH)
-				ISOException.throwIt(SW_WRONG_LENGTH);
-
-			// Check PW3
-			if (!pw3.check(buffer, _0, (byte) in_received)) {
-				ISOException
-						.throwIt((short) (0x63C0 | pw3.getTriesRemaining()));
-			}
+			
 		} else {
-			ISOException.throwIt(SW_INCORRECT_P1P2);
+			if (mode == (byte) 0x81 || mode == (byte) 0x82) {
+				// Check length of input
+				if (in_received < PW1_MIN_LENGTH || in_received > PW1_MAX_LENGTH)
+					ISOException.throwIt(SW_WRONG_LENGTH);
+	
+				// Check given PW1 and set requested mode if verified succesfully
+				if (pw1.check(buffer, _0, (byte) in_received)) {
+					if (mode == (byte) 0x81)
+						pw1_modes[PW1_MODE_NO81] = true;
+					else
+						pw1_modes[PW1_MODE_NO82] = true;
+				} else {
+					ISOException
+							.throwIt((short) (0x63C0 | pw1.getTriesRemaining()));
+				}
+			} else if (mode == (byte) 0x83) {
+				// Check length of input
+				if (in_received < PW3_MIN_LENGTH || in_received > PW3_MAX_LENGTH)
+					ISOException.throwIt(SW_WRONG_LENGTH);
+	
+				// Check PW3
+				if (!pw3.check(buffer, _0, (byte) in_received)) {
+					ISOException
+							.throwIt((short) (0x63C0 | pw3.getTriesRemaining()));
+				}
+			} else {
+				ISOException.throwIt(SW_INCORRECT_P1P2);
+			}
 		}
 	}
 
