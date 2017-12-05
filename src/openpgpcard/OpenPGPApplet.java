@@ -153,7 +153,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 
 	public OpenPGPApplet() {
 		// Create temporary arrays
-		tmp = JCSystem.makeTransientByteArray(BUFFER_MAX_LENGTH,
+		tmp = JCSystem.makeTransientByteArray((short) 256,
 				JCSystem.CLEAR_ON_DESELECT);
 		buffer = JCSystem.makeTransientByteArray(BUFFER_MAX_LENGTH,
 				JCSystem.CLEAR_ON_DESELECT);
@@ -1114,12 +1114,11 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	}
 
 	/**
-	 * EXPERIMENTAL: Provide functionality for importing keys.
+	 * Provide functionality for importing keys.
 	 * 
 	 * @param apdu
 	 */
 	private void importKey(APDU apdu) {
-		// TODO The following code still has to be tested
 		if (!pw3.isValidated())
 			ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);		
 		
@@ -1187,7 +1186,6 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 
 		key.clearKeyPair();
 		
-		// TODO Check value of e
 		key.setExponent(buffer, offset_data, len_e);		
 		offset_data += len_e;
 
@@ -1232,43 +1230,23 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			
 		// Build message in tmp
 		short offset = 0;
-
-		// 81 - Modulus
-		tmp[offset++] = (byte) 0x81;
-
-		// Length of modulus is always greater than 128 bytes
-		if (key.getModulusLength() < 256) {
-			tmp[offset++] = (byte) 0x81;
-			tmp[offset++] = (byte) key.getModulusLength();
-		} else {
-			tmp[offset++] = (byte) 0x82;
-			offset = Util.setShort(tmp, offset, key.getModulusLength());
-		}
-		pubkey.getModulus(tmp, offset);
-		offset += key.getModulusLength();
-
-		// 82 - Exponent
-		tmp[offset++] = (byte) 0x82;
-		tmp[offset++] = (byte) key.getExponentLength();
-		pubkey.getExponent(tmp, offset);
-		offset += key.getExponentLength();
-
-		short len = offset;
-
-		offset = 0;
-
+		
 		buffer[offset++] = 0x7F;
 		buffer[offset++] = 0x49;
+		
+		// Compute the length of the data element
+		short len = (short) (1 + getLengthBytes(key.getModulusLength()) + key.getModulusLength() + 2 + key.getExponentLength());
+		offset = setLength(buffer, offset, len);
+		
+		// 81 - Modulus
+		buffer[offset++] = (byte) 0x81;
+		offset = setLength(buffer, offset, key.getModulusLength());
+		offset += pubkey.getModulus(buffer, offset);
 
-		if (len < 256) {
-			buffer[offset++] = (byte) 0x81;
-			buffer[offset++] = (byte) len;
-		} else {
-			buffer[offset++] = (byte) 0x82;
-			offset = Util.setShort(buffer, offset, len);
-		}
-
-		offset = Util.arrayCopyNonAtomic(tmp, _0, buffer, offset, len);
+		// 82 - Exponent
+		buffer[offset++] = (byte) 0x82;
+		buffer[offset++] = (byte) key.getExponentLength();
+		offset += pubkey.getExponent(buffer, offset);
 
 		return offset;
 	}
@@ -1406,6 +1384,31 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			return 2;
 		else
 			return 3;
+	}
+	
+	/**
+	 * Write length for TLV element.
+	 *
+	 * @param buffer
+	 *            Byte array 
+	 * @param offset
+	 *            Offset to write encoded length at
+	 * @param length
+	 *            Length to encode and write
+	 * @return Offset after written length
+	 */
+	private short setLength(byte[] data, short offset, short length) {
+		if (length < 128) {
+			buffer[offset++] = (byte) length;			
+		} else if (length < 256) {
+			buffer[offset++] = (byte) 0x81;
+			buffer[offset++] = (byte) length;
+		} else {
+			buffer[offset++] = (byte) 0x82;
+			offset = Util.setShort(buffer, offset, length);
+		}		
+		
+		return offset;
 	}
 
 	/**
