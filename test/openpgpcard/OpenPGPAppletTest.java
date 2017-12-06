@@ -147,11 +147,17 @@ public class OpenPGPAppletTest {
 	}
 
 	@Test
-	public void test_userPINValid() {
+	public void test_userPINValid81() {
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_DEFAULT);
 		test(command, SW_NO_ERROR);
 	}
 
+	@Test
+	public void test_userPINValid82() {
+		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x82, USER_PIN_DEFAULT);
+		test(command, SW_NO_ERROR);
+	}
+	
 	@Test
 	public void test_userPINInvalid() {
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
@@ -176,7 +182,7 @@ public class OpenPGPAppletTest {
 		test(command, SW_TRIES_REMAINING_2);
 		
 		// Verify correct PIN
-		test_userPINValid();
+		test_userPINValid81();
 		
 		// Invalidate correctly verified PIN
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0xFF, 0x81);
@@ -255,7 +261,7 @@ public class OpenPGPAppletTest {
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
 		test(command, SW_TRIES_REMAINING_2);
 		
-		test_userPINValid();
+		test_userPINValid81();
 
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
 		test(command, SW_TRIES_REMAINING_2);
@@ -341,7 +347,7 @@ public class OpenPGPAppletTest {
 		byte[] testData = new byte[] { (byte)0xAB };
 		
 		test_importSignKey();
-		test_userPINValid();
+		test_userPINValid81();
 		
 		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x9E, 0x9A, testData);
 		ResponseAPDU response1 = test(command, 0x6101, hexToBytes("9E62CCBC302E5FF18C897FC65CA5F5044FDFA2133B53778CA10CF75F929428FADC8135958884DCD7829E32DC3D69D902364DDB37448420DDC9F5F57955CC6CCFD869A32E280482C207877B80CE953352E4B41291E624F7583BA84DC5655D5FEC06FE85304470227337C11F21B3528C0EB626ED01F7AE2DD57BA6F7D2529401EF03047394AFE00B626D65FBB57EE59273D6A37E0CA0BF9958BE75F15989CB77BFC18D445EAD7103B857B6B446B0AA35392B1E902C5B2D31E5B7F1A419016EBAFDE3DF22E42417E870907AF4FF0D376EFF188BD919476CF7F95A013D130ED096F6E5D79F8488B2114AC5D1FA989946411CD571F4DB27247477939457FEA734FF"));
@@ -368,7 +374,7 @@ public class OpenPGPAppletTest {
 	    byte[] encryptedData = cipher.doFinal(testData);
 	    
 		test_importDecryptKey();
-		test_userPINValid();
+		test_userPINValid82();
 		
 		byte[] data = new byte[255];
 		data[0] = 0x00;

@@ -69,12 +69,12 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	private static short LANG_MAX_LENGTH = 8;
 	private static short CERT_MAX_LENGTH = 500;
 
-	private static byte PW1_MIN_LENGTH = 6;
-	private static byte PW1_MAX_LENGTH = 127;
+	private static final byte PW1_MIN_LENGTH = 6;
+	private static final byte PW1_MAX_LENGTH = 127;
 	// Default PW1 '123456'
-	private static byte[] PW1_DEFAULT = { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36 };
+	private static final byte[] PW1_DEFAULT = { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36 };
 	private static byte PW1_MODE_NO81 = 0;
-	private static byte PW1_MODE_NO82 = 0;
+	private static byte PW1_MODE_NO82 = 1;
 
 	private static final byte RC_MIN_LENGTH = 8;
 	private static final byte RC_MAX_LENGTH = 127;
@@ -449,6 +449,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			}
 			
 		} else {
+			// Verify the provied PIN
 			if (mode == (byte) 0x81 || mode == (byte) 0x82) {
 				// Check length of input
 				if (in_received < PW1_MIN_LENGTH || in_received > PW1_MAX_LENGTH)
