@@ -47,9 +47,10 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			0x00 };
 
 	private static final byte[] EXTENDED_CAP = { 
-			(byte) 0xF0, // Support for GET CHALLENGE
+			(byte) 0xF2, // Support for GET CHALLENGE
 						 // Support for Key Import
 						 // PW1 Status byte changeable
+						 // PSO:DEC/ENC with AES
 			0x00, // Secure messaging using 3DES
 			0x00, (byte) 0xFF, // Maximum length of challenges
 			0x00, (byte) 0xFF, // Maximum length Cardholder Certificate
@@ -129,6 +130,13 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 			0x00 };
 
+	// Pointer to current AES key in use
+	private AESKey aesKey;
+	
+	private AESKey aes128Key;
+	private AESKey aes256Key;
+	private Cipher aesCipher;
+	
 	private Cipher cipher;
 	private RandomData random;
 
@@ -177,7 +185,12 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 		sig_key = new PGPKey();
 		dec_key = new PGPKey();
 		auth_key = new PGPKey();
-
+		
+		aes128Key = (AESKey)KeyBuilder.buildKey(KeyBuilder.TYPE_AES, KeyBuilder.LENGTH_AES_128, false);
+		aes256Key = (AESKey)KeyBuilder.buildKey(KeyBuilder.TYPE_AES, KeyBuilder.LENGTH_AES_256, false);
+		aesCipher = Cipher.getInstance(Cipher.ALG_AES_BLOCK_128_CBC_NOPAD, false);
+		aesKey = aes128Key;
+		
 		//
 		cipher = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
 		random = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
@@ -258,14 +271,14 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 				// COMPUTE DIGITAL SIGNATURE
 				if (p1p2 == (short) 0x9E9A) {
 					le = computeDigitalSignature(apdu);
-				}
 				// DECIPHER
-				else if (p1p2 == (short) 0x8086) {
+				} else if (p1p2 == (short) 0x8086) {
 					le = decipher(apdu);
+				} else if (p1p2 == (short) 0x8680) {
+						le = encipher(apdu);					
 				} else {
 					ISOException.throwIt(SW_WRONG_P1P2);
 				}
-				// TODO Add support for encipher command
 	
 				break;
 	
@@ -612,19 +625,79 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	 * @return Length of data written in buffer
 	 */
 	private short decipher(APDU apdu) {
-		// DECIPHER
 		if (!(pw1.isValidated() && pw1_modes[PW1_MODE_NO82]))
 			ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
-		if (!dec_key.getPrivate().isInitialized())
+
+		short len = 0;
+
+		// Check padding indicator
+		if (buffer[0] == 0x00) {
+			// RSA
+			if (!dec_key.getPrivate().isInitialized())
+				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
+	
+			// Copy data to be decrypted to tmp, omit padding indicator
+			short length = Util.arrayCopyNonAtomic(buffer, (short) 1, tmp, _0,
+					(short) (in_received - 1));
+	
+			cipher.init(dec_key.getPrivate(), Cipher.MODE_DECRYPT);
+			len = cipher.doFinal(tmp, _0, length, buffer, _0);
+		} else if (buffer[0] == 0x02){
+			// AES
+			if (!aesKey.isInitialized())
+				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
+
+			// Check whether data is multiple of blocksize (16). The last 4 bits of the length should be 0
+			if(((in_received - 1) & 0x0F) != 0x00) {
+				ISOException.throwIt(SW_WRONG_LENGTH);
+			}
+			
+			// Copy data to be decrypted to tmp, omit padding indicator
+			short length = Util.arrayCopyNonAtomic(buffer, (short) 1, tmp, _0,
+					(short) (in_received - 1));
+
+			aesCipher.init(aesKey, Cipher.MODE_DECRYPT);
+			len = aesCipher.doFinal(tmp, _0, length, buffer, _0);
+		} else {
+			ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
+		}
+		
+		return len;
+	}
+	
+	/**
+	 * Provide the PSO: ENCIPHER command (INS 2A, P1P2 8680)
+	 * 
+	 * Encrypt the data provided using the AES key stored in DO D5.
+	 * 
+	 * Before using this method PW1 has to be verified with mode No. 82.
+	 * 
+	 * @param apdu
+	 * @return Length of data written in buffer
+	 */
+	private short encipher(APDU apdu) {
+		if (!(pw1.isValidated() && pw1_modes[PW1_MODE_NO82]))
+			ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
+		
+		if (!aesKey.isInitialized())
 			ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
 
-		// Copy data to be decrypted to tmp, omit padding indicator
-		short length = Util.arrayCopyNonAtomic(buffer, (short) 1, tmp, _0,
-				(short) (in_received - 1));
-
-		cipher.init(dec_key.getPrivate(), Cipher.MODE_DECRYPT);
-		return cipher.doFinal(tmp, _0, length, buffer, _0);
-	}
+		// Check whether data is multiple of blocksize (16). The last 4 bits of the length should be 0
+		if((in_received & 0x0F) != 0x00) {
+			ISOException.throwIt(SW_WRONG_LENGTH);
+		}
+		
+		// Copy data to be encrypted to tmp
+		Util.arrayCopyNonAtomic(buffer, _0, tmp, _0, in_received);
+		
+		short len = 1;
+		// Set padding indicator in output
+		buffer[0] = 0x02;
+		
+		aesCipher.init(aesKey, Cipher.MODE_ENCRYPT);
+		len += aesCipher.doFinal(tmp, _0, in_received, buffer, (short)1);
+		return len;
+	}	
 
 	/**
 	 * Provide the INTERNAL AUTHENTICATE command (INS 88)
@@ -1079,6 +1152,24 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			}
 			break;
 
+		// D5 - AES-Key for PSO:ENC/DEC
+		case (short) 0x00D5:
+			// Check the length for the provided data
+			if (in_received == (KeyBuilder.LENGTH_AES_128 / 8)) {
+				aes128Key.setKey(buffer, _0);
+				aesKey = aes128Key;
+				aes256Key.clearKey();
+			} else if (in_received == (KeyBuilder.LENGTH_AES_256 / 8)) {
+				aes256Key.setKey(buffer, _0);
+				aesKey = aes256Key;
+				aes128Key.clearKey();				
+			} else {
+				ISOException.throwIt(SW_WRONG_LENGTH);
+			}
+
+
+			break;	
+				
 		// D1 - SM-Key-ENC
 		case (short) 0x00D1:
 			sm.setSessionKeyEncryption(buffer, _0);

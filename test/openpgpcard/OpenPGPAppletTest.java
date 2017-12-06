@@ -4,6 +4,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
 import java.math.BigInteger;
+import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
@@ -15,14 +16,17 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import javax.smartcardio.CommandAPDU;
+import javax.smartcardio.ResponseAPDU;
 
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.licel.jcardsim.smartcardio.CardSimulator;
-
-import javax.smartcardio.*;
 
 import javacard.framework.AID;
 
@@ -83,6 +87,9 @@ public class OpenPGPAppletTest {
 	static byte[] ADMIN_PIN_NEW = new byte[] { 0x38, 0x37, 0x36, 0x35, 0x34, 0x33, 0x32, 0x31 };
 	
 	RSAPublicKey publicKey;
+	SecretKeySpec aes128KeySpec;
+	SecretKeySpec aes256KeySpec;
+	IvParameterSpec ivSpec = new IvParameterSpec(new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });	
 	
 	private static String CHARS = "0123456789ABCDEF";
 
@@ -141,9 +148,14 @@ public class OpenPGPAppletTest {
 		simulator.installApplet(aid, OpenPGPApplet.class, bArray, (short) 0, (byte) bArray.length);
 		simulator.selectApplet(aid);
 		
+		// Construct RSA public key
 		RSAPublicKeySpec publicKeySpec = new RSAPublicKeySpec(new BigInteger("B0AABBCB33DB653EA3C0B71231305455489E8107B7B0A5400951519DE51C3ACF3C69EE96BC1DFE6A59CAD1F8889433096930E077FC2AEFA0D9104B1230A4AD282BAFA0ED434BAB96D64145B7E8054B88AFF1385CFF7879152DC7AC34DD5F17826C177D9173D6094396237A7E560122DFD46F9FBCBFFD27A3E1191F08174F0980BAFDCF45613A03B198C4E6C880E96226AD9E9D3CD08BF05412E8EDD49B267702C2A4766805B38D137191AF2B52991F9ABC49E7C02FCA8C7F617C39CB968894A5A773D5B000912A683F9F760DA6D7247DC26C152CA5DA6FDDD50AD8B769EFB87ADF09B792EDB8AE8B2B3D7015C9F62D7EE3F44F1C35A89140BB74C913A079C3A7", 16), new BigInteger("010001", 16));
 		KeyFactory keyFactory = KeyFactory.getInstance("RSA");
 		publicKey = (RSAPublicKey) keyFactory.generatePublic(publicKeySpec);
+		
+		// Construct AES keys
+		aes128KeySpec = new SecretKeySpec(new byte[] {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}, "AES");
+		aes256KeySpec = new SecretKeySpec(new byte[] {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}, "AES");
 	}
 
 	@Test
@@ -394,6 +406,32 @@ public class OpenPGPAppletTest {
 	}		
 	
 	@Test
+	public void test_signTwicePWStatus1() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+		byte[] testData = new byte[] { (byte)0xAB };
+		
+		test_importSignKey();
+		
+		// Enable multiple signatures per authentication
+		test_adminPINValid();
+		command = new CommandAPDU(CLA_DEFAULT, INS_PUT_DATA_DA, 0x00, 0xC4, new byte[] { 0x01 });
+		test(command, SW_NO_ERROR);
+		
+		test_userPINValid81();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x9E, 0x9A, testData);
+		test(command, 0x6101, hexToBytes("9E62CCBC302E5FF18C897FC65CA5F5044FDFA2133B53778CA10CF75F929428FADC8135958884DCD7829E32DC3D69D902364DDB37448420DDC9F5F57955CC6CCFD869A32E280482C207877B80CE953352E4B41291E624F7583BA84DC5655D5FEC06FE85304470227337C11F21B3528C0EB626ED01F7AE2DD57BA6F7D2529401EF03047394AFE00B626D65FBB57EE59273D6A37E0CA0BF9958BE75F15989CB77BFC18D445EAD7103B857B6B446B0AA35392B1E902C5B2D31E5B7F1A419016EBAFDE3DF22E42417E870907AF4FF0D376EFF188BD919476CF7F95A013D130ED096F6E5D79F8488B2114AC5D1FA989946411CD571F4DB27247477939457FEA734FF"));
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_GET_RESPONSE, 0x00, 0x00, 0x01);
+		test(command, SW_NO_ERROR, hexToBytes("DB"));
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x9E, 0x9A, testData);
+		test(command, 0x6101, hexToBytes("9E62CCBC302E5FF18C897FC65CA5F5044FDFA2133B53778CA10CF75F929428FADC8135958884DCD7829E32DC3D69D902364DDB37448420DDC9F5F57955CC6CCFD869A32E280482C207877B80CE953352E4B41291E624F7583BA84DC5655D5FEC06FE85304470227337C11F21B3528C0EB626ED01F7AE2DD57BA6F7D2529401EF03047394AFE00B626D65FBB57EE59273D6A37E0CA0BF9958BE75F15989CB77BFC18D445EAD7103B857B6B446B0AA35392B1E902C5B2D31E5B7F1A419016EBAFDE3DF22E42417E870907AF4FF0D376EFF188BD919476CF7F95A013D130ED096F6E5D79F8488B2114AC5D1FA989946411CD571F4DB27247477939457FEA734FF"));
+
+		command = new CommandAPDU(CLA_DEFAULT, INS_GET_RESPONSE, 0x00, 0x00, 0x01);
+		test(command, SW_NO_ERROR, hexToBytes("DB"));
+	}	
+	
+	@Test
 	public void test_decrypt() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
 		byte[] testData = new byte[] { (byte)0xAB };
 
@@ -418,7 +456,7 @@ public class OpenPGPAppletTest {
 	}	
 	
 	@Test
-	public void test_decryptWrongPINMode() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+	public void test_decryptWrongPINMode() {
 		byte[] testData = new byte[] { (byte)0xAB };
 		
 		test_importDecryptKey();
@@ -426,5 +464,117 @@ public class OpenPGPAppletTest {
 		
 		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x80, 0x86, testData);
 		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);
-	}			
+	}
+	
+	@Test
+	public void test_encryptAES128() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException {
+		byte[] testData = new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+
+		Cipher aesCipher = Cipher.getInstance("AES/CBC/NOPADDING");
+		aesCipher.init(Cipher.ENCRYPT_MODE, aes128KeySpec, ivSpec);
+		byte[] encryptedData = aesCipher.doFinal(testData);
+		
+		test_adminPINValid();
+		// Import AES key
+		command = new CommandAPDU(CLA_DEFAULT, INS_PUT_DATA_DA, 0x00, 0xD5, new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 });
+		test(command, SW_NO_ERROR);		
+		
+		test_userPINValid82();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x86, 0x80, testData);
+		test(command, SW_NO_ERROR, hexToBytes("02" + bytesToHex(encryptedData)));
+	}	
+	
+	@Test
+	public void test_decryptAES128() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException {
+		byte[] testData = new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+		
+		Cipher aesCipher = Cipher.getInstance("AES/CBC/NOPADDING");
+		aesCipher.init(Cipher.ENCRYPT_MODE, aes128KeySpec, ivSpec);
+		byte[] encryptedData = aesCipher.doFinal(testData);
+		
+		test_adminPINValid();
+		// Import AES key
+		command = new CommandAPDU(CLA_DEFAULT, INS_PUT_DATA_DA, 0x00, 0xD5, new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 });
+		test(command, SW_NO_ERROR);		
+		
+		test_userPINValid82();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x80, 0x86, hexToBytes("02" + bytesToHex(encryptedData)));
+		test(command, SW_NO_ERROR, testData);
+	}
+	
+	@Test
+	public void test_encryptDecryptAES128() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException {
+		byte[] testData = new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+		
+		test_adminPINValid();
+		// Import AES key
+		command = new CommandAPDU(CLA_DEFAULT, INS_PUT_DATA_DA, 0x00, 0xD5, new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 });
+		test(command, SW_NO_ERROR);		
+		
+		test_userPINValid82();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x86, 0x80, testData);
+		ResponseAPDU response = test(command, SW_NO_ERROR, null);
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x80, 0x86, response.getData());
+		test(command, SW_NO_ERROR, testData);
+	}	
+	
+	@Test
+	public void test_encryptAES256() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException {
+		byte[] testData = new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+
+		Cipher aesCipher = Cipher.getInstance("AES/CBC/NOPADDING");
+		aesCipher.init(Cipher.ENCRYPT_MODE, aes256KeySpec, ivSpec);
+		byte[] encryptedData = aesCipher.doFinal(testData);
+		
+		test_adminPINValid();
+		// Import AES key
+		command = new CommandAPDU(CLA_DEFAULT, INS_PUT_DATA_DA, 0x00, 0xD5, new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 });
+		test(command, SW_NO_ERROR);		
+		
+		test_userPINValid82();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x86, 0x80, testData);
+		test(command, SW_NO_ERROR, hexToBytes("02" + bytesToHex(encryptedData)));	
+	}	
+	
+	@Test
+	public void test_decryptAES256() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException {
+		byte[] testData = new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+
+		Cipher aesCipher = Cipher.getInstance("AES/CBC/NOPADDING");
+		aesCipher.init(Cipher.ENCRYPT_MODE, aes256KeySpec, ivSpec);
+		byte[] encryptedData = aesCipher.doFinal(testData);
+		
+		test_adminPINValid();
+		// Import AES key
+		command = new CommandAPDU(CLA_DEFAULT, INS_PUT_DATA_DA, 0x00, 0xD5, new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 });
+		test(command, SW_NO_ERROR);		
+		
+		test_userPINValid82();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x80, 0x86, hexToBytes("02" + bytesToHex(encryptedData)));
+		test(command, SW_NO_ERROR, testData);
+	}		
+	
+	@Test
+	public void test_encryptDecryptAES256() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException {
+		byte[] testData = new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+		
+		test_adminPINValid();
+		// Import AES key
+		command = new CommandAPDU(CLA_DEFAULT, INS_PUT_DATA_DA, 0x00, 0xD5, new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 });
+		test(command, SW_NO_ERROR);		
+		
+		test_userPINValid82();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x86, 0x80, testData);
+		ResponseAPDU response = test(command, SW_NO_ERROR, null);
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x80, 0x86, response.getData());
+		test(command, SW_NO_ERROR, testData);
+	}	
 }

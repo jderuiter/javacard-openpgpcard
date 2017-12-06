@@ -41,7 +41,7 @@
   </target>
 	
   <!-- Build unit tests -->	
-  <target name="compileTest" depends="openpgpcard,compileTestApplet">
+  <target name="compileTest" depends="compileTestApplet">
     <javac srcdir="${test.src.dir}" destdir="${test.build.dir}" includeantruntime="false">
   	  <classpath refid="classpath.test"/>
     </javac>
