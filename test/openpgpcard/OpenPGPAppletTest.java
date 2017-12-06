@@ -366,6 +366,34 @@ public class OpenPGPAppletTest {
 	}	
 	
 	@Test
+	public void test_signWrongPINMode() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+		byte[] testData = new byte[] { (byte)0xAB };
+		
+		test_importSignKey();
+		test_userPINValid82();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x9E, 0x9A, testData);
+		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);
+	}		
+	
+	@Test
+	public void test_signTwice() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+		byte[] testData = new byte[] { (byte)0xAB };
+		
+		test_importSignKey();
+		test_userPINValid81();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x9E, 0x9A, testData);
+		test(command, 0x6101, hexToBytes("9E62CCBC302E5FF18C897FC65CA5F5044FDFA2133B53778CA10CF75F929428FADC8135958884DCD7829E32DC3D69D902364DDB37448420DDC9F5F57955CC6CCFD869A32E280482C207877B80CE953352E4B41291E624F7583BA84DC5655D5FEC06FE85304470227337C11F21B3528C0EB626ED01F7AE2DD57BA6F7D2529401EF03047394AFE00B626D65FBB57EE59273D6A37E0CA0BF9958BE75F15989CB77BFC18D445EAD7103B857B6B446B0AA35392B1E902C5B2D31E5B7F1A419016EBAFDE3DF22E42417E870907AF4FF0D376EFF188BD919476CF7F95A013D130ED096F6E5D79F8488B2114AC5D1FA989946411CD571F4DB27247477939457FEA734FF"));
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_GET_RESPONSE, 0x00, 0x00, 0x01);
+		test(command, SW_NO_ERROR, hexToBytes("DB"));
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x9E, 0x9A, testData);
+		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);	
+	}		
+	
+	@Test
 	public void test_decrypt() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
 		byte[] testData = new byte[] { (byte)0xAB };
 
@@ -388,4 +416,15 @@ public class OpenPGPAppletTest {
 		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x80, 0x86, data);
 		test(command, SW_NO_ERROR, testData);
 	}	
+	
+	@Test
+	public void test_decryptWrongPINMode() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+		byte[] testData = new byte[] { (byte)0xAB };
+		
+		test_importDecryptKey();
+		test_userPINValid81();
+		
+		command = new CommandAPDU(CLA_DEFAULT, INS_PERFORM_SECURITY_OPERATION, 0x80, 0x86, testData);
+		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);
+	}			
 }
