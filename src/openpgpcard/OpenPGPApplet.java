@@ -265,6 +265,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 				} else {
 					ISOException.throwIt(SW_WRONG_P1P2);
 				}
+				// TODO Add support for encipher command
 	
 				break;
 	
@@ -621,7 +622,6 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 				(short) (in_received - 1));
 
 		cipher.init(dec_key.getPrivate(), Cipher.MODE_DECRYPT);
-
 		return cipher.doFinal(tmp, _0, length, buffer, _0);
 	}
 
@@ -1129,8 +1129,14 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			ISOException.throwIt(SW_DATA_INVALID);
 
 		// Length of 4D
-		offset += getLengthBytes(getLength(buffer, offset));
+		 short len4D = getLength(buffer, offset);
+		 offset += getLengthBytes(len4D);
 
+		// Check if all bytes were received
+		if(in_received < (short)(len4D - 2)) {
+			ISOException.throwIt(SW_DATA_INVALID);
+		}
+			
 		// Get key for Control Reference Template
 		PGPKey key = getKey(buffer[offset++]);
 
