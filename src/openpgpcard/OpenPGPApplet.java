@@ -39,12 +39,18 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	//TODO Check atomicity of all storage commands
 	
 	private static final short _0 = 0;
+	private static short SW_CARD_BLOCKED = 0x6285;
 	
 	private static final boolean FORCE_SM_GET_CHALLENGE = true;
 
-	private static final byte[] HISTORICAL = { 0x00, 0x73, 0x00, 0x00,
-			(byte) 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00 };
+	private static final byte[] HISTORICAL = { 0x00, 
+			0x73, 0x00, 0x00, (byte) 0x80, // Card Capabilities
+										   // - Command chaining
+			0x31, (byte)0x80, // Card service data
+							  // - Application Selection by full DF name (AID)
+			0x05, // Status indicator byte: Operational state (activated)
+			(byte)0x90, 0x00
+	}; 
 
 	private static final byte[] EXTENDED_CAP = { 
 			(byte) 0xF2, // Support for GET CHALLENGE
@@ -53,9 +59,10 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 						 // PSO:DEC/ENC with AES
 			0x00, // Secure messaging using 3DES
 			0x00, (byte) 0xFF, // Maximum length of challenges
-			0x00, (byte) 0xFF, // Maximum length Cardholder Certificate
-			0x00, (byte) 0xFF, // Maximum length command data
-			0x00, (byte) 0xFF  // Maximum length response data
+			0x01, 0x00, // Maximum length Cardholder Certificate
+			0x00, (byte) 0xFE, // Maximum length of special DOs
+			0x00, // PIN block 2 format NOT supported
+			0x00 // MSE command for key numbers 2 (DEC) and 3 (AUT) NOT supported
 	};
 
 	private static short RESPONSE_MAX_LENGTH = 255;
@@ -68,7 +75,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	private static short URL_MAX_LENGTH = 254;
 	private static short NAME_MAX_LENGTH = 39;
 	private static short LANG_MAX_LENGTH = 8;
-	private static short CERT_MAX_LENGTH = 500;
+	private static short CERT_MAX_LENGTH = 512;
 
 	private static final byte PW1_MIN_LENGTH = 6;
 	private static final byte PW1_MAX_LENGTH = 127;
@@ -114,21 +121,15 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	private OwnerPIN pw3;
 	private byte pw3_length = 0;
 
-	private byte[] ds_counter = { 0x00, 0x00, 0x00 };
+	private byte[] ds_counter = new byte[3];
 
 	private PGPKey sig_key;
 	private PGPKey dec_key;
 	private PGPKey auth_key;
 
-	private byte[] ca1_fp = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00 };
-	private byte[] ca2_fp = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00 };
-	private byte[] ca3_fp = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00 };
+	private byte[] ca1_fp = new byte[20];
+	private byte[] ca2_fp = new byte[20];
+	private byte[] ca3_fp = new byte[20];
 
 	// Pointer to current AES key in use
 	private AESKey aesKey;
@@ -140,6 +141,8 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	private Cipher cipher;
 	private RandomData random;
 
+	private boolean terminated = false;
+	
 	private byte[] tmp;
 
 	private byte[] buffer;
@@ -168,18 +171,9 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 		pw1_modes = JCSystem.makeTransientBooleanArray((short) 2,
 				JCSystem.CLEAR_ON_DESELECT);
 
-		// Initialize PW1 with default password
 		pw1 = new OwnerPIN((byte) 3, PW1_MAX_LENGTH);
-		pw1.update(PW1_DEFAULT, _0, (byte) PW1_DEFAULT.length);
-		pw1_length = (byte) PW1_DEFAULT.length;
-
-		// Initialize RC
 		rc = new OwnerPIN((byte) 3, RC_MAX_LENGTH);
-
-		// Initialize PW3 with default password
 		pw3 = new OwnerPIN((byte) 3, PW3_MAX_LENGTH);
-		pw3.update(PW3_DEFAULT, _0, (byte) PW3_DEFAULT.length);
-		pw3_length = (byte) PW3_DEFAULT.length;
 
 		// Create empty keys
 		sig_key = new PGPKey();
@@ -189,14 +183,60 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 		aes128Key = (AESKey)KeyBuilder.buildKey(KeyBuilder.TYPE_AES, KeyBuilder.LENGTH_AES_128, false);
 		aes256Key = (AESKey)KeyBuilder.buildKey(KeyBuilder.TYPE_AES, KeyBuilder.LENGTH_AES_256, false);
 		aesCipher = Cipher.getInstance(Cipher.ALG_AES_BLOCK_128_CBC_NOPAD, false);
-		aesKey = aes128Key;
 		
-		//
 		cipher = Cipher.getInstance(Cipher.ALG_RSA_PKCS1, false);
 		random = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
 		
 		// Initialize Secure Messaging
 		sm = new OpenPGPSecureMessaging();
+		
+		// Initialise default values
+		initialise();
+	}
+	
+	private void initialise() {
+		aesKey = aes128Key;
+		
+		Util.arrayFillNonAtomic(url, _0, (short)url.length, (byte) 0x00);
+		url_length = 0;
+
+		Util.arrayFillNonAtomic(name, _0, (short)name.length, (byte) 0x00);
+		name_length = 0;
+
+		Util.arrayFillNonAtomic(lang, _0, (short)lang.length, (byte) 0x00);
+		lang_length = 0;
+
+		Util.arrayFillNonAtomic(cert, _0, (short)cert.length, (byte) 0x00);
+		cert_length = 0;
+
+		sex = 0x39;
+
+		Util.arrayFillNonAtomic(ds_counter, _0, (short)ds_counter.length, (byte) 0x00);
+		Util.arrayFillNonAtomic(ca1_fp, _0, (short)ca1_fp.length, (byte) 0x00);
+		Util.arrayFillNonAtomic(ca2_fp, _0, (short)ca2_fp.length, (byte) 0x00);
+		Util.arrayFillNonAtomic(ca3_fp, _0, (short)ca3_fp.length, (byte) 0x00);
+		
+		// Initialize PW1 with default password
+		pw1_status = 0x00;
+		pw1_modes[PW1_MODE_NO81] = false;
+		pw1_modes[PW1_MODE_NO82] = false;
+		
+		pw1.update(PW1_DEFAULT, _0, (byte) PW1_DEFAULT.length);
+		// Unblock the PIN as this is not automatically unblocked when updating PIN 
+		pw1.resetAndUnblock();
+		pw1_length = (byte) PW1_DEFAULT.length;
+
+		// Reset RC
+		rc.resetAndUnblock();
+		rc_length = 0;
+
+		// Initialize PW3 with default password
+		pw3.update(PW3_DEFAULT, _0, (byte) PW3_DEFAULT.length);
+		// Unblock the PIN as this is not automatically unblocked when updating PIN		
+		pw3.resetAndUnblock();
+		pw3_length = (byte) PW3_DEFAULT.length;		
+		
+		terminated = false;		
 	}
 
 	public void process(APDU apdu) {
@@ -238,6 +278,11 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			if (ins != (byte) 0xC0) {
 				out_sent = 0;
 				out_left = 0;
+			}
+			
+			// If in terminated state only SELECT and ACTIVATE FILE command is accepted
+			if(terminated && ins != 0x44) {
+				ISOException.throwIt(SW_CARD_BLOCKED);
 			}
 	
 			// Other instructions
@@ -318,6 +363,16 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 				}
 				break;
 	
+			// ACTIVATE FILE
+			case (byte) 0x44:
+				activate();
+				break;
+				
+			// TERMINATE DF
+			case (byte) 0xE6:
+				terminate(sm_success);
+				break;
+			
 			default:
 				// good practice: If you don't know the INStruction, say so:
 				ISOException.throwIt(SW_INS_NOT_SUPPORTED);
@@ -462,19 +517,23 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			}
 			
 		} else {
-			// Verify the provied PIN
+			// Verify the provided PIN
 			if (mode == (byte) 0x81 || mode == (byte) 0x82) {
 				// Check length of input
 				if (in_received < PW1_MIN_LENGTH || in_received > PW1_MAX_LENGTH)
 					ISOException.throwIt(SW_WRONG_LENGTH);
 	
-				// Check given PW1 and set requested mode if verified succesfully
+				// Check given PW1 and set requested mode if verified successfully
 				if (pw1.check(buffer, _0, (byte) in_received)) {
 					if (mode == (byte) 0x81)
 						pw1_modes[PW1_MODE_NO81] = true;
 					else
 						pw1_modes[PW1_MODE_NO82] = true;
 				} else {
+					// If wrong PW1 is provided disable all PW1 modes
+					pw1_modes[PW1_MODE_NO81] = false;
+					pw1_modes[PW1_MODE_NO82] = false;
+					
 					ISOException
 							.throwIt((short) (0x63C0 | pw1.getTriesRemaining()));
 				}
@@ -483,6 +542,11 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 				if (in_received < PW3_MIN_LENGTH || in_received > PW3_MAX_LENGTH)
 					ISOException.throwIt(SW_WRONG_LENGTH);
 	
+				// If PW3 was already validated, reset it
+				if(pw3.isValidated()) {
+					pw3.reset();
+				}
+				
 				// Check PW3
 				if (!pw3.check(buffer, _0, (byte) in_received)) {
 					ISOException
@@ -963,7 +1027,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 					cert_length);
 
 			return offset;
-
+		
 		// C4 - PW Status Bytes
 		case (short) 0x00C4:
 			buffer[offset++] = pw1_status;
@@ -1203,6 +1267,40 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			ISOException.throwIt(SW_RECORD_NOT_FOUND);
 			break;
 		}
+	}
+	
+	private void activate() {
+		// If the card is not terminated, do nothing
+		if(!terminated) {
+			ISOException.throwIt(SW_NO_ERROR);
+		}
+		
+		// Clear all keys
+		dec_key.clearKeyPair();
+		sig_key.clearKeyPair();
+		auth_key.clearKeyPair();
+		
+		aes128Key.clearKey();
+		aes256Key.clearKey();
+		aesKey = aes128Key;
+		
+		sm.clearSessionKeys();
+		
+		// Reset all values to their default values		
+		initialise();
+	}
+	
+	private void terminate(boolean sm_scuccess) {
+		// This command can be execute if one of the following applies:
+		// - PW3 is verified
+		// - PW3 is not blocked and secure messaging is used
+		// - PW3 is blocked and secure messaging is disabled
+		if(!(pw3.isValidated() || (pw3.getTriesRemaining() > 0 && sm_scuccess) || (pw3.getTriesRemaining() == 0 && !sm_scuccess))) {
+			ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
+		}
+		
+		// Switch to terminated status. The historical bytes are not modified as they cannot be retrieved in terminated mode
+		terminated = true;
 	}
 
 	/**
