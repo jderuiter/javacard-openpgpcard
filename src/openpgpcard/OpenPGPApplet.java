@@ -39,7 +39,8 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	//TODO Check atomicity of all storage commands
 	
 	private static final short _0 = 0;
-	private static short SW_CARD_BLOCKED = 0x6285;
+	private static final short SW_CARD_BLOCKED = 0x6285;
+	private static final short SW_AUTHENTICATION_METHOD_BLOCKED = 0x6983;
 	
 	private static final boolean FORCE_SM_GET_CHALLENGE = true;
 
@@ -456,7 +457,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 		} else if (chain) {
 			// Chained command expected
 			resetChaining();
-			ISOException.throwIt(SW_UNKNOWN);
+			ISOException.throwIt(SW_LAST_COMMAND_EXPECTED);
 		} else {
 			// No chaining was used, so copy data to buffer
 			in_received = Util.arrayCopyNonAtomic(buf, OFFSET_CDATA,
@@ -522,7 +523,12 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 				// Check length of input
 				if (in_received < PW1_MIN_LENGTH || in_received > PW1_MAX_LENGTH)
 					ISOException.throwIt(SW_WRONG_LENGTH);
-	
+
+				// Check whether PW1 is already blocked
+				if (pw1.getTriesRemaining() == 0) {
+					ISOException.throwIt(SW_AUTHENTICATION_METHOD_BLOCKED);
+				}
+				
 				// Check given PW1 and set requested mode if verified successfully
 				if (pw1.check(buffer, _0, (byte) in_received)) {
 					if (mode == (byte) 0x81)
@@ -534,23 +540,21 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 					pw1_modes[PW1_MODE_NO81] = false;
 					pw1_modes[PW1_MODE_NO82] = false;
 					
-					ISOException
-							.throwIt((short) (0x63C0 | pw1.getTriesRemaining()));
+					ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
 				}
 			} else if (mode == (byte) 0x83) {
 				// Check length of input
 				if (in_received < PW3_MIN_LENGTH || in_received > PW3_MAX_LENGTH)
 					ISOException.throwIt(SW_WRONG_LENGTH);
 	
-				// If PW3 was already validated, reset it
-				if(pw3.isValidated()) {
-					pw3.reset();
+				// Check whether PW1 is already blocked
+				if (pw3.getTriesRemaining() == 0) {
+					ISOException.throwIt(SW_AUTHENTICATION_METHOD_BLOCKED);
 				}
 				
 				// Check PW3
 				if (!pw3.check(buffer, _0, (byte) in_received)) {
-					ISOException
-							.throwIt((short) (0x63C0 | pw3.getTriesRemaining()));
+					ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
 				}
 			} else {
 				ISOException.throwIt(SW_INCORRECT_P1P2);
@@ -569,14 +573,21 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 	 */
 	private void changeReferenceData(APDU apdu, byte mode) {
 		if (mode == (byte) 0x81) {
+			// Check whether PW1 is already blocked
+			if (pw1.getTriesRemaining() == 0) {
+				ISOException.throwIt(SW_AUTHENTICATION_METHOD_BLOCKED);
+			}			
+
 			// Check length of the new password
 			short new_length = (short) (in_received - pw1_length);
-			if (new_length < PW1_MIN_LENGTH || new_length > PW1_MAX_LENGTH)
-				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
-
-			if (!pw1.check(buffer, _0, pw1_length))
-				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
-
+			if (new_length < PW1_MIN_LENGTH || new_length > PW1_MAX_LENGTH) {
+				ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
+			}
+			
+			if (!pw1.check(buffer, _0, pw1_length)) {
+				ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
+			}
+			
 			// Change PW1
 			JCSystem.beginTransaction();
 			pw1.update(buffer, pw1_length, (byte) new_length);
@@ -585,14 +596,21 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			pw1_modes[PW1_MODE_NO82] = false;
 			JCSystem.commitTransaction();
 		} else if (mode == (byte) 0x83) {
+			// Check whether PW3 is already blocked
+			if (pw3.getTriesRemaining() == 0) {
+				ISOException.throwIt(SW_AUTHENTICATION_METHOD_BLOCKED);
+			}			
+
 			// Check length of the new password
 			short new_length = (short) (in_received - pw3_length);
-			if (new_length < PW3_MIN_LENGTH || new_length > PW3_MAX_LENGTH)
-				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
-
-			if (!pw3.check(buffer, _0, pw3_length))
-				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
-
+			if (new_length < PW3_MIN_LENGTH || new_length > PW3_MAX_LENGTH) {
+				ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
+			}
+			
+			if (!pw3.check(buffer, _0, pw1_length)) {
+				ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
+			}
+			
 			// Change PW3
 			JCSystem.beginTransaction();
 			pw3.update(buffer, pw3_length, (byte) new_length);
@@ -614,24 +632,32 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 		if (mode == (byte) 0x00) {
 			// Authentication using RC
 			if (rc_length == 0)
-				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
+				ISOException.throwIt(SW_AUTHENTICATION_METHOD_BLOCKED);
+
+			// Check whether RC is already blocked
+			if (rc.getTriesRemaining() == 0) {
+				ISOException.throwIt(SW_AUTHENTICATION_METHOD_BLOCKED);
+			}			
 
 			short new_length = (short) (in_received - rc_length);
+			
 			if (new_length < PW1_MIN_LENGTH || new_length > PW1_MAX_LENGTH)
-				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
+				ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
 
-			if (!rc.check(buffer, _0, rc_length))
-				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
+			if (!rc.check(buffer, _0, rc_length)) {
+				ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
+			}
 
 			// Change PW1
 			JCSystem.beginTransaction();
 			pw1.update(buffer, rc_length, (byte) new_length);
+			pw1.resetAndUnblock();
 			pw1_length = (byte) new_length;
 			JCSystem.commitTransaction();
 		} else if (mode == (byte) 0x02) {
 			// Authentication using PW3
 			if (!pw3.isValidated())
-				ISOException.throwIt(SW_CONDITIONS_NOT_SATISFIED);
+				ISOException.throwIt(SW_SECURITY_STATUS_NOT_SATISFIED);
 
 			if (in_received < PW1_MIN_LENGTH || in_received > PW1_MAX_LENGTH)
 				ISOException.throwIt(SW_WRONG_LENGTH);
@@ -639,6 +665,7 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 			// Change PW1
 			JCSystem.beginTransaction();
 			pw1.update(buffer, _0, (byte) in_received);
+			pw1.resetAndUnblock();
 			pw1_length = (byte) in_received;
 			JCSystem.commitTransaction();
 		} else {

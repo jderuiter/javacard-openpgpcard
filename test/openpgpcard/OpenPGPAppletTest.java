@@ -62,6 +62,7 @@ public class OpenPGPAppletTest {
 	static int SW_TRIES_REMAINING_3 = 0x63c3;	
 	static int SW_WRONG_LENGTH = 0x6700;
 	static int SW_SECURITY_STATUS_NOT_SATISFIED = 0x6982;
+	static int SW_AUTHENTICATION_METHOD_BLOCKED = 0x6983;
 	static int SW_DATA_INVALID = 0x6984;
 	static int SW_CONDITIONS_NOT_SATISFIED = 0x6985;
 	static int SW_RECORD_NOT_FOUND = 0x6a83;
@@ -173,22 +174,22 @@ public class OpenPGPAppletTest {
 	@Test
 	public void test_userPINInvalid() {
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
-		test(command, SW_TRIES_REMAINING_2);
+		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);
 		
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
-		test(command, SW_TRIES_REMAINING_1);
+		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);
 		
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
-		test(command, SW_TRIES_REMAINING_0);
+		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);
 		
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
-		test(command, SW_TRIES_REMAINING_0);
+		test(command, SW_AUTHENTICATION_METHOD_BLOCKED);
 	}
 	
 	@Test
 	public void test_userPINStatus() {
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
-		test(command, SW_TRIES_REMAINING_2);
+		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);
 		
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81);
 		test(command, SW_TRIES_REMAINING_2);
@@ -214,6 +215,7 @@ public class OpenPGPAppletTest {
 	public void test_userPINResetRC() {
 		test_adminPINValid();
 		
+		// Set RC
 		command = new CommandAPDU(CLA_DEFAULT, INS_PUT_DATA_DA, 0x00, 0xD3, new byte[] { 0x38, 0x37, 0x36, 0x35, 0x34, 0x33, 0x32, 0x31 });
 		test(command, SW_NO_ERROR);
 		
@@ -221,6 +223,7 @@ public class OpenPGPAppletTest {
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0xFF, 0x83);
 		test(command, SW_NO_ERROR);
 
+		// Verify admin PIN was reset
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x83);
 		test(command, SW_TRIES_REMAINING_3);
 		
@@ -247,7 +250,7 @@ public class OpenPGPAppletTest {
 		
 		// Reset user PIN without verifying admin password
 		command = new CommandAPDU(CLA_DEFAULT, INS_RESET_RETRY_COUNTER, 0x02, 0x81, USER_PIN_NEW);
-		test(command, SW_CONDITIONS_NOT_SATISFIED);
+		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);
 		
 		// Reset user PIN after verifying admin password		
 		test_adminPINValid();		
@@ -271,12 +274,21 @@ public class OpenPGPAppletTest {
 	@Test
 	public void test_userPINReset() {
 		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
+		test(command, SW_SECURITY_STATUS_NOT_SATISFIED);
+
+		// Check there is one less try for the PIN
+		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81);
 		test(command, SW_TRIES_REMAINING_2);
 		
 		test_userPINValid81();
 
-		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81, USER_PIN_INVALID);
-		test(command, SW_TRIES_REMAINING_2);
+		// Reset PIN status
+		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0xFF, 0x81);
+		test(command, SW_NO_ERROR);
+		
+		// Check there are again 3 tries remaining for the PIN
+		command = new CommandAPDU(CLA_DEFAULT, INS_VERIFY, 0x00, 0x81);
+		test(command, SW_TRIES_REMAINING_3);		
 	}
 
 	@Test
