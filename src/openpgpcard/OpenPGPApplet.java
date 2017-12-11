@@ -257,6 +257,10 @@ public class OpenPGPApplet extends Applet implements ISO7816 {
 		short p1p2 = Util.makeShort(p1, p2);
 		short lc = (short) (buf[OFFSET_LC] & 0xFF);
  
+		if(lc > 0) {
+			apdu.setIncomingAndReceive();
+		}
+		
 		// Secure messaging
 		//TODO Force SM if contactless is used		
 		sm_success = false;
